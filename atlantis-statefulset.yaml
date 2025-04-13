@@ -1,0 +1,160 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-hostpath
+spec:
+  template:
+    spec:
+      containers:
+      - name: create-hostpath
+        image: busybox
+        command: ['sh', '-c', 'mkdir -p /mnt/atlantis-data && chmod 777 /mnt/atlantis-data']
+        volumeMounts:
+        - name: hostpath-volume
+          mountPath: /mnt/atlantis-data
+      volumes:
+      - name: hostpath-volume
+        hostPath:
+          path: /mnt/atlantis-data
+          type: DirectoryOrCreate
+      restartPolicy: Never
+  backoffLimit: 1
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: atlantis
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: atlantis-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  hostPath:
+    path: /mnt/atlantis-data # Замените на путь на хосте
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: atlantis
+  namespace: atlantis
+spec:
+  serviceName: atlantis
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: atlantis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: atlantis
+    spec:
+      securityContext:
+        fsGroup: 1000 # Atlantis group (1000) read/write access to volumes.
+      containers:
+      - name: atlantis
+        image: ghcr.io/runatlantis/atlantis:v0.34.0 # 1. Replace <VERSION> with the most recent release.
+        env:
+        - name: ATLANTIS_REPO_ALLOWLIST
+          value: github.com/iveisberg/DevOps-Engineer-Diploma-Terraform # 2. Replace this with your own repo allowlist.
+        ### GitHub Config ###
+        - name: ATLANTIS_GH_USER
+          value: iveisberg # 3i. If you're using GitHub replace <YOUR_GITHUB_USER> with the username of your Atlantis GitHub user without the `@`.
+        - name: ATLANTIS_GH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: atlantis-vcs
+              key: token
+        - name: ATLANTIS_GH_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: atlantis-vcs
+              key: webhook-secret
+        - name: YC_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: yc-credentials
+              key: YC_ACCESS_KEY_ID
+        - name: YC_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: yc-credentials
+              key: YC_SECRET_ACCESS_KEY
+        ### End GitHub Config ###
+        - name: ATLANTIS_DATA_DIR
+          value: /atlantis
+        - name: ATLANTIS_PORT
+          value: "4141" # Kubernetes sets an ATLANTIS_PORT variable so we need to override.
+
+        volumeMounts:
+        - name: atlantis-data
+          mountPath: /atlantis
+        ports:
+        - name: atlantis
+          containerPort: 4141
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 100m
+          limits:
+            memory: 256Mi
+            cpu: 100m
+        livenessProbe:
+          # We only need to check every 60s since Atlantis is not a
+          # high-throughput service.
+          periodSeconds: 60
+          httpGet:
+            path: /healthz
+            port: 4141
+            # If using https, change this to HTTPS
+            scheme: HTTP
+        readinessProbe:
+          periodSeconds: 60
+          httpGet:
+            path: /healthz
+            port: 4141
+            # If using https, change this to HTTPS
+            scheme: HTTP
+  volumeClaimTemplates:
+  - metadata:
+      name: atlantis-data
+    spec:
+      accessModes: ["ReadWriteOnce"] # Volume should not be shared by multiple nodes.
+      resources:
+        requests:
+          storage: 5Gi
+      storageClassName: local-storage # Указываем StorageClass
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: atlantis
+  namespace: atlantis
+spec:
+  selector:
+    app.kubernetes.io/name: atlantis
+  ports:
+  - name: atlantis
+    nodePort: 30414
+    protocol: TCP
+    port: 80
+    targetPort: 4141 # Порт, на котором работает приложение в поде
+  type: NodePort
