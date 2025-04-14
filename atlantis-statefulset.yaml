@@ -45,7 +45,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: local-storage
   hostPath:
-    path: /mnt/atlantis-data # Замените на путь на хосте
+    path: /mnt/atlantis-data # путь на хосте
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -68,16 +68,17 @@ spec:
         app.kubernetes.io/name: atlantis
     spec:
       securityContext:
+        runAsUser: 1000
         fsGroup: 1000 # Atlantis group (1000) read/write access to volumes.
       containers:
       - name: atlantis
-        image: ghcr.io/runatlantis/atlantis:v0.34.0 # 1. Replace <VERSION> with the most recent release.
+        image: ghcr.io/runatlantis/atlantis:v0.34.0
         env:
         - name: ATLANTIS_REPO_ALLOWLIST
-          value: github.com/iveisberg/DevOps-Engineer-Diploma-Terraform # 2. Replace this with your own repo allowlist.
+          value: github.com/iveisberg/*
         ### GitHub Config ###
         - name: ATLANTIS_GH_USER
-          value: iveisberg # 3i. If you're using GitHub replace <YOUR_GITHUB_USER> with the username of your Atlantis GitHub user without the `@`.
+          value: iveisberg
         - name: ATLANTIS_GH_TOKEN
           valueFrom:
             secretKeyRef:
@@ -88,25 +89,25 @@ spec:
             secretKeyRef:
               name: atlantis-vcs
               key: webhook-secret
-        - name: YC_ACCESS_KEY_ID
+        - name: YC_ACCESS_KEY_ID # Access Key ID для Yandex Cloud
           valueFrom:
             secretKeyRef:
               name: yc-credentials
               key: YC_ACCESS_KEY_ID
-        - name: YC_SECRET_ACCESS_KEY
+        - name: YC_SECRET_ACCESS_KEY # Secret Access Key для Yandex Cloud
           valueFrom:
             secretKeyRef:
               name: yc-credentials
               key: YC_SECRET_ACCESS_KEY
         ### End GitHub Config ###
         - name: ATLANTIS_DATA_DIR
-          value: /atlantis
+          value: /atlantis-data
         - name: ATLANTIS_PORT
           value: "4141" # Kubernetes sets an ATLANTIS_PORT variable so we need to override.
 
         volumeMounts:
         - name: atlantis-data
-          mountPath: /atlantis
+          mountPath: /atlantis-data
         ports:
         - name: atlantis
           containerPort: 4141
