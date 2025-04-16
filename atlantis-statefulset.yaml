@@ -68,14 +68,20 @@ spec:
         app.kubernetes.io/name: atlantis
     spec:
       securityContext:
-        runAsUser: 1000
         fsGroup: 1000 # Atlantis group (1000) read/write access to volumes.
+        fsGroupChangePolicy: "OnRootMismatch"
       containers:
       - name: atlantis
         image: ghcr.io/runatlantis/atlantis:v0.34.0
+        securityContext:
+          runAsUser: 0
         env:
+        # - name: ATLANTIS_LOG_LEVEL
+        #   value: "debug"
+        - name: ATLANTIS_REPO_CONFIG
+          value: /etc/atlantis/repo-config.yaml
         - name: ATLANTIS_REPO_ALLOWLIST
-          value: github.com/iveisberg/*
+          value: "github.com/iveisberg/DevOps-Engineer-Diploma-Terraform"
         ### GitHub Config ###
         - name: ATLANTIS_GH_USER
           value: iveisberg
@@ -89,51 +95,84 @@ spec:
             secretKeyRef:
               name: atlantis-vcs
               key: webhook-secret
-        - name: YC_ACCESS_KEY_ID # Access Key ID для Yandex Cloud
-          valueFrom:
-            secretKeyRef:
-              name: yc-credentials
-              key: YC_ACCESS_KEY_ID
-        - name: YC_SECRET_ACCESS_KEY # Secret Access Key для Yandex Cloud
-          valueFrom:
-            secretKeyRef:
-              name: yc-credentials
-              key: YC_SECRET_ACCESS_KEY
         ### End GitHub Config ###
+        - name: YC_KMS_KEY_ID
+          value: "abjrv7dc3qq27uijp8ob"
+        # - name: YC_KEY_SECRET
         - name: ATLANTIS_DATA_DIR
           value: /atlantis-data
         - name: ATLANTIS_PORT
-          value: "4141" # Kubernetes sets an ATLANTIS_PORT variable so we need to override.
-
+          value: "4141"
         volumeMounts:
+        - name: repo-config
+          mountPath: /etc/atlantis
+          # readOnly: false
         - name: atlantis-data
           mountPath: /atlantis-data
+          # readOnly: false
+        - name: tf-volume
+          mountPath: /home/atlantis/terraform_files
+          # readOnly: false
+        - name: tf-volume-id-rsa-pub
+          mountPath: /root/.ssh
+          # readOnly: false
         ports:
         - name: atlantis
           containerPort: 4141
         resources:
           requests:
-            memory: 256Mi
-            cpu: 100m
+            memory: 512Mi
+            cpu: 200m
           limits:
-            memory: 256Mi
-            cpu: 100m
+            memory: 1Gi
+            cpu: 500m
         livenessProbe:
-          # We only need to check every 60s since Atlantis is not a
-          # high-throughput service.
           periodSeconds: 60
           httpGet:
             path: /healthz
             port: 4141
-            # If using https, change this to HTTPS
             scheme: HTTP
         readinessProbe:
           periodSeconds: 60
           httpGet:
             path: /healthz
             port: 4141
-            # If using https, change this to HTTPS
             scheme: HTTP
+      volumes:
+        - name: repo-config
+          configMap:
+            name: atlantis-repo-config
+        - name: tf-volume-id-rsa-pub
+          projected:
+            sources:
+              - configMap:
+                  name: id-rsa.pub
+                  items:
+                    - key: id_ed25519.pub
+                      path: id_ed25519.pub       
+        - name: tf-volume
+          projected:
+            sources:
+              - configMap:
+                  name: terraformrc
+                  items:
+                    - key: .terraformrc
+                      path: .terraformrc
+              - secret:
+                  name: secret.backend.tfvars
+                  items:
+                    - key: secret.backend.tfvars
+                      path: secret.backend.tfvars
+              - secret:
+                  name: personal.auto.tfvars
+                  items:
+                    - key: personal.auto.tfvars
+                      path: personal.auto.tfvars
+              - secret:
+                  name: yc-credentials
+                  items:
+                    - key: sa-key.json
+                      path: sa-key.json
   volumeClaimTemplates:
   - metadata:
       name: atlantis-data

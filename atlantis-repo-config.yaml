@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: atlantis-repo-config
+  namespace: atlantis
+data:
+  repo-config.yaml: |
+    repos:
+      - id: github.com/iveisberg/DevOps-Engineer-Diploma-Terraform
+        branch: /.*/
+        plan_requirements: []
+        apply_requirements: []
+        allowed_overrides: [apply_requirements]
+        allow_custom_workflows: true
+        delete_source_branch_on_merge: false
+        workflow: default
+        pre_workflow_hooks:
+          - run: mkdir -p ~/.terraform.d/plugins/registry.terraform.io/yandex-cloud/yandex/0.140.1/linux_amd64
+          - run: wget https://github.com/yandex-cloud/terraform-provider-yandex/releases/download/v0.140.1/terraform-provider-yandex_0.140.1_linux_amd64.zip
+          - run: unzip terraform-provider-yandex_0.140.1_linux_amd64.zip -d ~/.terraform.d/plugins/registry.terraform.io/yandex-cloud/yandex/0.140.1/linux_amd64/
+    workflows:
+      default:
+        plan:
+          steps:
+            - run: cp /home/atlantis/terraform_files/.terraformrc /home/atlantis/
+            - run: cp /home/atlantis/terraform_files/personal.auto.tfvars .
+            - run: terraform init -backend-config=/home/atlantis/terraform_files/secret.backend.tfvars
+            - plan
+        apply:
+          steps:
+            - apply
